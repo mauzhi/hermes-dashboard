@@ -214,180 +214,20 @@ def test_nous_dashboard_device_flow_does_not_retry_legacy_scope_on_invoke_refusa
     assert requested_scopes == [auth_mod.DEFAULT_NOUS_SCOPE]
 
 
-def test_codex_dashboard_worker_persists_runtime_provider(tmp_path, monkeypatch):
-    from hermes_cli import web_server as ws
-    from hermes_cli.auth import get_active_provider
-    from hermes_cli.runtime_provider import resolve_runtime_provider
+def test_chatgpt_oauth_is_not_exposed_by_dashboard():
+    """ChatGPT/Codex auth remains CLI-only and must not surface in web APIs."""
+    providers_resp = client.get("/api/providers/oauth", headers=HEADERS)
 
-    access_token = "h.eyJleHAiOjk5OTk5OTk5OTl9.s"
+    assert providers_resp.status_code == 200, providers_resp.text
+    provider_ids = {p["id"] for p in providers_resp.json()["providers"]}
+    assert "openai-codex" not in provider_ids
 
-    class _Resp:
-        def __init__(self, status_code, payload):
-            self.status_code = status_code
-            self._payload = payload
-
-        def json(self):
-            return self._payload
-
-    class _Client:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def post(self, url, **kwargs):
-            if url.endswith("/deviceauth/usercode"):
-                return _Resp(200, {
-                    "device_auth_id": "device-auth-id",
-                    "interval": 3,
-                    "user_code": "CODEX-1234",
-                })
-            if url.endswith("/deviceauth/token"):
-                return _Resp(200, {
-                    "authorization_code": "authorization-code",
-                    "code_verifier": "code-verifier",
-                })
-            return _Resp(200, {
-                "access_token": access_token,
-                "refresh_token": "codex-refresh",
-            })
-
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.setattr(httpx, "Client", _Client)
-    monkeypatch.setattr(ws.time, "sleep", lambda _: None)
-
-    sid, _ = ws._new_oauth_session("openai-codex", "device_code")
-    try:
-        ws._codex_full_login_worker(sid)
-
-        assert ws._oauth_sessions[sid]["status"] == "approved"
-        assert get_active_provider() == "openai-codex"
-
-        runtime = resolve_runtime_provider(requested=None)
-        assert runtime["provider"] == "openai-codex"
-        assert runtime["api_key"] == access_token
-        assert runtime["api_mode"] == "codex_responses"
-    finally:
-        ws._oauth_sessions.pop(sid, None)
-
-
-def test_codex_dashboard_worker_persists_inside_session_profile(tmp_path, monkeypatch):
-    from hermes_cli import auth as auth_mod
-    from hermes_cli import web_server as ws
-    from hermes_constants import get_hermes_home
-
-    profile_home = _make_profile_home(tmp_path, monkeypatch)
-
-    class _Resp:
-        def __init__(self, status_code, payload):
-            self.status_code = status_code
-            self._payload = payload
-
-        def json(self):
-            return self._payload
-
-    class _Client:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def post(self, url, **kwargs):
-            if url.endswith("/deviceauth/usercode"):
-                return _Resp(200, {
-                    "device_auth_id": "device-auth-id",
-                    "interval": 3,
-                    "user_code": "CODEX-1234",
-                })
-            if url.endswith("/deviceauth/token"):
-                return _Resp(200, {
-                    "authorization_code": "authorization-code",
-                    "code_verifier": "code-verifier",
-                })
-            return _Resp(200, {
-                "access_token": "codex-access",
-                "refresh_token": "codex-refresh",
-            })
-
-    saved_homes = []
-    monkeypatch.setattr(httpx, "Client", _Client)
-    monkeypatch.setattr(ws.time, "sleep", lambda _: None)
-    monkeypatch.setattr(
-        auth_mod,
-        "_save_codex_tokens",
-        lambda tokens: saved_homes.append(get_hermes_home()),
+    start_resp = client.post(
+        "/api/providers/oauth/openai-codex/start",
+        headers=HEADERS,
     )
-
-    sid, _ = ws._new_oauth_session(
-        "openai-codex",
-        "device_code",
-        profile="coder",
-    )
-    try:
-        ws._codex_full_login_worker(sid)
-
-        assert ws._oauth_sessions[sid]["status"] == "approved"
-        assert saved_homes == [profile_home]
-    finally:
-        ws._oauth_sessions.pop(sid, None)
-
-
-def test_codex_dashboard_start_rewords_device_authorization_error(monkeypatch):
-    from hermes_cli import web_server as ws
-
-    before_sessions = set(ws._oauth_sessions)
-
-    class _Resp:
-        status_code = 400
-        text = "Enable device code authorization"
-
-        def json(self):
-            return {
-                "error": {
-                    "message": "Enable device code authorization",
-                    "code": "device_authorization_not_enabled",
-                }
-            }
-
-    class _Client:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def post(self, url, **kwargs):
-            assert url.endswith("/deviceauth/usercode")
-            return _Resp()
-
-    monkeypatch.setattr(httpx, "Client", _Client)
-
-    try:
-        resp = client.post(
-            "/api/providers/oauth/openai-codex/start",
-            headers=HEADERS,
-        )
-
-        assert resp.status_code == 500
-        detail = resp.json()["detail"]
-        assert "OpenAI rejected the device-code login request" in detail
-        assert "Enable device-code authorization in OpenAI" in detail
-        assert "click Login again" in detail
-        assert "hermes auth" not in detail
-    finally:
-        for sid in set(ws._oauth_sessions) - before_sessions:
-            ws._oauth_sessions.pop(sid, None)
+    assert start_resp.status_code == 400
+    assert start_resp.json()["detail"] == "Unknown provider openai-codex"
 
 
 def test_nous_dashboard_poller_preserves_effective_scope_when_token_omits_scope(monkeypatch):
@@ -521,10 +361,10 @@ def test_xai_oauth_listed_as_device_code_flow():
 
 
 def test_accounts_offers_every_oauth_provider_from_catalog():
-    """PARITY CONTRACT: every accounts-tab provider in the unified catalog (the
-    `hermes model` universe) must be offered by /api/providers/oauth. This keeps
-    the desktop Accounts tab in lockstep with the CLI picker — no provider the
-    CLI can sign into may be missing from the GUI.
+    """PARITY CONTRACT: every web-supported accounts provider is offered.
+
+    ChatGPT/Codex is deliberately CLI-only; every other accounts-tab provider
+    from the `hermes model` universe must remain in lockstep with the GUI.
     """
     from hermes_cli.provider_catalog import provider_catalog
 
@@ -532,7 +372,7 @@ def test_accounts_offers_every_oauth_provider_from_catalog():
     assert resp.status_code == 200, resp.text
     offered = {p["id"] for p in resp.json()["providers"]}
     for d in provider_catalog():
-        if d.tab == "accounts":
+        if d.tab == "accounts" and d.slug != "openai-codex":
             assert d.slug in offered, (
                 f"{d.slug} is an accounts-tab provider in `hermes model` but is "
                 f"missing from the desktop Accounts tab (/api/providers/oauth)"

@@ -194,7 +194,7 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
       aria-modal="true"
       aria-labelledby="oauth-modal-title"
     >
-      <div className={cn(themedBody, "relative w-full max-w-md border border-border bg-card shadow-2xl")}>
+      <div className={cn(themedBody, "relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto border border-border bg-card shadow-2xl")}>
         <Button
           ghost
           size="icon"
@@ -204,7 +204,7 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
         >
           <X />
         </Button>
-        <div className="p-6 flex flex-col gap-4">
+        <div className="flex flex-col gap-4 p-4 sm:p-6">
           <div>
             <H2
               id="oauth-modal-title"
@@ -284,14 +284,14 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
               <p className="text-sm text-muted-foreground">
                 {t.oauth.enterCodePrompt}
               </p>
-              <div className="flex items-center justify-between gap-2 border border-border bg-secondary/30 p-4">
-                <code className="font-mono-ui text-2xl tracking-widest text-foreground">
+              <div className="flex min-w-0 flex-col items-stretch gap-3 border border-border bg-secondary/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+                <code className="min-w-0 break-all text-center font-mono-ui text-xl tracking-widest text-foreground sm:text-left sm:text-2xl">
                   {deviceCode}
                 </code>
                 <Button
                   size="sm"
                   outlined
-                  className="shrink-0 uppercase"
+                  className="min-h-11 shrink-0 sm:min-h-0"
                   onClick={() => void handleCopyDeviceCode(deviceCode)}
                   prefix={
                     copyStatus === "copied" ? (

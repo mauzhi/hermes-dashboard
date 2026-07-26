@@ -95,8 +95,8 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">
               {t.oauth.providerLogins}
@@ -140,7 +140,7 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
             return (
               <div
                 key={p.id}
-                className="flex items-center justify-between gap-4 py-3"
+                className="flex min-w-0 flex-col items-stretch gap-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
                 <div className="flex items-start gap-3 min-w-0 flex-1">
                   {p.status.logged_in ? (
@@ -213,7 +213,7 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
                   {p.docs_url && (
                     <a
                       href={p.docs_url}
@@ -230,7 +230,7 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
                   {!p.status.logged_in && p.flow !== "external" && (
                     <Button
                       size="sm"
-                      className="uppercase"
+                      className="min-h-11 flex-1 sm:min-h-0 sm:flex-none"
                       onClick={() => setLoginFor(p)}
                     >
                       {t.oauth.login}
@@ -240,7 +240,7 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
                     <Button
                       size="sm"
                       outlined
-                      className="uppercase"
+                      className="min-h-11 flex-1 sm:min-h-0 sm:flex-none"
                       onClick={() => setDisconnectTarget(p)}
                       disabled={isBusy}
                       prefix={isBusy ? <Spinner /> : undefined}

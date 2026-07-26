@@ -34,6 +34,7 @@ import {
   HardDrive,
   Heart,
   KeyRound,
+  LayoutDashboard,
   Menu,
   MessageSquare,
   Package,
@@ -77,6 +78,7 @@ import ConfigPage from "@/pages/ConfigPage";
 import DocsPage from "@/pages/DocsPage";
 import EnvPage from "@/pages/EnvPage";
 import FilesPage from "@/pages/FilesPage";
+import OverviewPage from "@/pages/OverviewPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
@@ -150,6 +152,7 @@ const CHAT_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
+  "/overview": OverviewPage,
   "/sessions": SessionsPage,
   "/files": FilesPage,
   "/analytics": AnalyticsPage,
@@ -180,6 +183,12 @@ function ChatRouteSink() {
 }
 
 const BUILTIN_NAV_REST: NavItem[] = [
+  {
+    path: "/overview",
+    label: "Overview",
+    icon: LayoutDashboard,
+    group: "Workspace",
+  },
   {
     path: "/sessions",
     labelKey: "sessions",
@@ -232,6 +241,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   FileText,
   FolderOpen,
   KeyRound,
+  LayoutDashboard,
   MessageSquare,
   Package,
   Settings,
@@ -546,7 +556,7 @@ export default function App() {
     <ProfileProvider>
     <div
       data-layout-variant={layoutVariant}
-      className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-background-base text-text-primary antialiased"
+      className="flex h-dvh max-h-dvh min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-background-base text-text-primary antialiased"
     >
       <SelectionSwitcher />
 
@@ -561,7 +571,7 @@ export default function App() {
         className={cn(
           "lg:hidden fixed top-0 left-0 right-0 z-40 min-h-14",
           "flex items-center gap-3 px-3 py-2",
-          "border-b border-current/15 shadow-[0_8px_24px_rgba(0,0,0,0.12)]",
+          "border-b border-current/15",
           "bg-background-base",
         )}
         style={{
@@ -578,7 +588,7 @@ export default function App() {
           aria-label={t.app.openNavigation}
           aria-expanded={mobileOpen}
           aria-controls="app-sidebar"
-          className="h-11 w-11 shrink-0 rounded-xl text-text-secondary hover:bg-midground/6 hover:text-midground"
+          className="h-11 w-11 shrink-0 rounded-lg text-text-secondary hover:bg-midground/6 hover:text-midground"
         >
           <Menu className="h-5 w-5" />
         </Button>
@@ -591,10 +601,10 @@ export default function App() {
         </span>
         <div className="min-w-0 leading-none">
           <Typography className="truncate text-[0.9rem] font-semibold leading-tight tracking-[-0.025em] text-midground">
-            Mauzhi Hermes Agent
+            Hermes Agent
           </Typography>
           <span className="mt-1 block text-[0.64rem] font-medium text-text-tertiary">
-            Control center
+            Mauzhi control center
           </span>
         </div>
       </header>
@@ -606,7 +616,7 @@ export default function App() {
           onClick={closeMobile}
           className={cn(
             "lg:hidden fixed inset-0 z-40 p-0 block",
-            "bg-black/65 backdrop-blur-[2px]",
+            "bg-black/60",
           )}
         />
       )}
@@ -624,10 +634,10 @@ export default function App() {
             inert={isMobile && !mobileOpen ? true : undefined}
             role={isMobile && mobileOpen ? "dialog" : undefined}
             className={cn(
-              "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-[min(20rem,calc(100vw-2rem))] min-h-0 flex-col pb-[env(safe-area-inset-bottom,0px)] font-sans lg:w-60 lg:pb-0",
+              "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-[min(20rem,calc(100vw-2rem))] min-h-0 flex-col pb-[env(safe-area-inset-bottom,0px)] font-sans lg:w-64 lg:pb-0",
               "border-r border-current/15",
               "bg-background-base",
-              "shadow-[12px_0_32px_rgba(0,0,0,0.16)]",
+              "shadow-none",
               "transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
               "lg:sticky lg:top-0 lg:translate-x-0 lg:shrink-0 lg:overflow-hidden",
@@ -656,20 +666,20 @@ export default function App() {
 
                 <span
                   aria-hidden="true"
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-midground text-[0.8rem] font-semibold text-background-base shadow-[0_0_0_1px_color-mix(in_srgb,var(--midground-base)_16%,transparent),0_4px_14px_rgba(0,0,0,0.2)]"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-midground text-[0.8rem] font-semibold text-background-base"
                 >
                   M
                 </span>
                 <div className="min-w-0 leading-none">
                   <Typography className="truncate text-[0.9rem] font-semibold leading-tight tracking-[-0.025em] text-midground">
-                    Mauzhi Hermes Agent
+                    Hermes Agent
                   </Typography>
                   <span className="mt-1 flex items-center gap-1.5 text-[0.65rem] font-medium text-text-tertiary">
                     <span
                       aria-hidden="true"
-                      className="h-1.5 w-1.5 rounded-full bg-success shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-success)_10%,transparent)]"
+                      className="h-1.5 w-1.5 rounded-full bg-success"
                     />
-                    Control center
+                    Mauzhi control center
                   </span>
                 </div>
               </div>
@@ -680,7 +690,7 @@ export default function App() {
                 size="icon"
                 onClick={closeMobile}
                 aria-label={t.app.closeNavigation}
-                className="h-11 w-11 shrink-0 rounded-xl text-text-secondary hover:bg-midground/6 hover:text-midground lg:hidden"
+                className="h-11 w-11 shrink-0 rounded-lg text-text-secondary hover:bg-midground/6 hover:text-midground lg:hidden"
               >
                 <X className="h-5 w-5" />
               </Button>
@@ -845,8 +855,8 @@ export default function App() {
           <PageHeaderProvider pluginTabs={pluginTabMeta}>
             <div
               className={cn(
-                "relative z-2 flex min-w-0 min-h-0 flex-1 flex-col",
-                "px-3 sm:px-6",
+                "relative z-2 flex min-w-0 min-h-0 max-w-full flex-1 flex-col overflow-x-hidden",
+                "px-2.5 sm:px-6",
                 isChatRoute
                   ? "pb-0 pt-1 sm:pt-2 lg:pt-4"
                   : "pt-2 sm:pt-4 lg:pt-6",
@@ -975,7 +985,7 @@ function SidebarNavLink({
             "whitespace-nowrap transition-colors cursor-pointer",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background-base",
             isActive
-              ? "bg-midground/10 font-semibold text-midground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--midground-base)_12%,transparent),0_1px_2px_rgba(0,0,0,0.14)]"
+              ? "border border-midground/15 bg-midground/10 font-semibold text-midground"
               : "text-text-secondary hover:bg-midground/6 hover:text-midground",
           )
         }

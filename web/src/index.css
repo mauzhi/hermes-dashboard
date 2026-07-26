@@ -72,6 +72,16 @@
   --theme-line-height: 1.55;
   --theme-letter-spacing: 0;
 
+  /* The Nous component library exposes several branded display faces. The
+     dashboard deliberately collapses those aliases onto its two semantic
+     families: sans for product UI and mono for code/data. JetBrains Mono in
+     xterm remains the optional third, terminal-only face. */
+  --font-sans: var(--theme-font-sans);
+  --font-mono: var(--theme-font-mono);
+  --font-rules-compressed: var(--theme-font-sans);
+  --font-rules-expanded: var(--theme-font-sans);
+  --font-mondwest: var(--theme-font-sans);
+
   /* Layout tokens. */
   --radius: 0.5rem;
   --theme-radius: 0.5rem;
@@ -97,7 +107,10 @@ html {
   letter-spacing: var(--theme-letter-spacing);
   height: 100dvh;
   max-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
+  overscroll-behavior-x: none;
 }
 
 body {
@@ -105,11 +118,88 @@ body {
   min-height: 0;
   height: 100%;
   margin: 0;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
+  overscroll-behavior-x: none;
 }
 
 code, kbd, pre, samp, .font-mono, .font-mono-ui {
   font-family: var(--theme-font-mono);
+}
+
+/* A single, calm type hierarchy. Legacy design-system utilities still appear
+   throughout the page source, but no longer introduce extra decorative fonts
+   or all-caps, widely tracked copy. */
+.font-compressed,
+.font-expanded,
+.font-mondwest,
+.font-serif {
+  font-family: var(--theme-font-sans) !important;
+}
+
+.font-courier {
+  font-family: var(--theme-font-mono) !important;
+}
+
+.text-display {
+  font-family: var(--theme-font-sans) !important;
+  text-transform: none !important;
+  letter-spacing: 0.01em !important;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  font-family: var(--theme-font-sans) !important;
+  box-shadow: none !important;
+  text-transform: none !important;
+  letter-spacing: 0.01em !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--theme-font-sans) !important;
+  text-transform: none !important;
+  letter-spacing: -0.015em !important;
+}
+
+input,
+select,
+textarea {
+  border-radius: var(--theme-radius);
+  box-shadow: none !important;
+}
+
+/* Flat product chrome: borders and colour carry hierarchy; animated strokes,
+   simulated bevels, grain, clipping and oversized shadows do not. Dialogs may
+   keep a small elevation so they remain distinguishable from the page. */
+.arc-border,
+.grain::after {
+  display: none !important;
+}
+
+[style*="--component-card-background"] {
+  border-radius: var(--theme-radius) !important;
+  border-image: none !important;
+  box-shadow: none !important;
+  clip-path: none !important;
+}
+
+[style*="--component-header-background"],
+[style*="--component-sidebar-clip-path"],
+[style*="--component-tab-clip-path"] {
+  border-image: none !important;
+  clip-path: none !important;
 }
 
 /* Density: scale the shadcn spacing utilities via a multiplier. The DS
@@ -126,18 +216,60 @@ code, kbd, pre, samp, .font-mono, .font-mono-ui {
   min-height: 0;
   height: 100%;
   max-height: 100%;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
+  overscroll-behavior-x: none;
 }
 
 @media (max-width: 768px) {
   html,
   body,
   #root {
-    min-height: 100dvh;
-    height: auto;
-    max-height: none;
-    overflow-x: hidden;
-    overflow-y: auto;
+    min-height: 0;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* Mobile has one deliberate vertical scroller (the page <main>). Keep the
+     app viewport fixed so wide cards, tables, popovers, and long tokens cannot
+     drag the whole dashboard sideways. Pinch zoom remains available. */
+  [data-layout-variant] {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  [data-layout-variant] main {
+    max-width: 100%;
+    overflow-x: clip;
+    contain: inline-size;
+  }
+
+  [data-layout-variant] :where(section, article, form, fieldset) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  [data-layout-variant] :where(input, select, textarea, pre) {
+    max-width: 100%;
+  }
+
+  [data-layout-variant] :where(code, pre, td, th) {
+    overflow-wrap: anywhere;
+  }
+
+  [data-layout-variant] table {
+    width: 100%;
+    max-width: 100%;
+    table-layout: fixed;
+  }
+
+  [data-layout-variant] :where(td, th) {
+    white-space: normal;
   }
 }
 

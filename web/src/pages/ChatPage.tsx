@@ -40,7 +40,7 @@ import {
   readTextFromClipboard,
 } from "@/lib/clipboard";
 import { latchChatActivation } from "@/lib/chat-activation";
-import { normalizeSessionTitle } from "@/lib/chat-title";
+import { normalizeSessionTitle, selectedChatPageTitle } from "@/lib/chat-title";
 import {
   PTY_CONNECTING_TIMEOUT_MS,
   PTY_RECONNECT_INPUT_MESSAGE,
@@ -335,9 +335,9 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       return;
     }
 
-    setTitle(sessionTitle);
+    setTitle(selectedChatPageTitle(t.app.nav.chat, sessionTitle));
     return () => setTitle(null);
-  }, [isActive, sessionTitle, setTitle]);
+  }, [isActive, sessionTitle, setTitle, t.app.nav.chat]);
 
   useEffect(() => {
     if (!resumeParam) return;
@@ -443,7 +443,6 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         </span>
       </Button>,
     );
-    return () => setEnd(null);
   }, [isActive, narrow, mobilePanelOpen, modelToolsLabel, setEnd]);
 
   const handleCopyLast = () => {

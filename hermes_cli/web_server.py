@@ -10359,7 +10359,7 @@ def _copilot_acp_status() -> Dict[str, Any]:
 # display order. They are the OVERRIDE BASE for ``_build_oauth_catalog()``,
 # which unions them with every accounts-tab provider in ``provider_catalog()``
 # so newly-added OAuth/external providers appear automatically (no hand edit).
-# This tuple also still includes two entries that are NOT catalog providers but
+# This tuple also includes two entries that are NOT catalog providers but
 # must show on the Accounts tab: the api-key Anthropic PKCE card and the
 # synthetic ``claude-code`` subscription row.
 # ``flow`` describes the OAuth shape so the modal can pick the right UI:
@@ -10374,14 +10374,6 @@ _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
         "cli_command": "hermes auth add nous",
         "docs_url": "https://portal.nousresearch.com",
         "status_fn": None,  # dispatched via auth.get_nous_auth_status
-    },
-    {
-        "id": "openai-codex",
-        "name": "OpenAI OAuth (ChatGPT)",
-        "flow": "device_code",
-        "cli_command": "hermes auth add openai-codex",
-        "docs_url": "https://platform.openai.com/docs",
-        "status_fn": None,  # dispatched via auth.get_codex_auth_status
     },
     {
         "id": "qwen-oauth",
@@ -10444,6 +10436,11 @@ _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
     },
 )
 
+# ChatGPT/Codex authentication is intentionally CLI-only. The unified provider
+# catalog still exposes it for model selection, so the dashboard's Accounts
+# catalog must explicitly exclude it rather than relying on tab membership.
+_DASHBOARD_OAUTH_EXCLUDED_PROVIDER_IDS = frozenset({"openai-codex"})
+
 
 def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
     """Dispatch to the right status helper for an OAuth provider entry."""
@@ -10463,17 +10460,6 @@ def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
                 "token_preview": _truncate_token(raw.get("access_token")),
                 "expires_at": raw.get("access_expires_at"),
                 "has_refresh_token": bool(raw.get("has_refresh_token")),
-            }
-        if provider_id == "openai-codex":
-            raw = hauth.get_codex_auth_status()
-            return {
-                "logged_in": bool(raw.get("logged_in")),
-                "source": raw.get("source") or "openai_codex",
-                "source_label": raw.get("auth_mode") or "OpenAI Codex",
-                "token_preview": _truncate_token(raw.get("api_key")),
-                "expires_at": None,
-                "has_refresh_token": False,
-                "last_refresh": raw.get("last_refresh"),
             }
         if provider_id == "qwen-oauth":
             raw = hauth.get_qwen_auth_status()
@@ -10600,7 +10586,10 @@ def _build_oauth_catalog() -> list[Dict[str, Any]]:
 
     # 1. Explicit hand-tuned cards (authoritative metadata + curated order).
     for entry in _OAUTH_PROVIDER_CATALOG:
-        if entry["id"] in seen:
+        if (
+            entry["id"] in seen
+            or entry["id"] in _DASHBOARD_OAUTH_EXCLUDED_PROVIDER_IDS
+        ):
             continue
         seen.add(entry["id"])
         rows.append(dict(entry))
@@ -10610,7 +10599,11 @@ def _build_oauth_catalog() -> list[Dict[str, Any]]:
     try:
         from hermes_cli.provider_catalog import provider_catalog
         for d in provider_catalog():
-            if d.tab != "accounts" or d.slug in seen:
+            if (
+                d.tab != "accounts"
+                or d.slug in seen
+                or d.slug in _DASHBOARD_OAUTH_EXCLUDED_PROVIDER_IDS
+            ):
                 continue
             seen.add(d.slug)
             rows.append({
@@ -10755,8 +10748,8 @@ async def disconnect_oauth_provider(
 #          → persists to ~/.hermes/.anthropic_oauth.json AND credential pool
 #          → returns { ok: true, status: "approved" }
 #
-#   Device code (Nous, OpenAI Codex):
-#     1. POST /api/providers/oauth/{nous|openai-codex}/start
+#   Device code (Nous, MiniMax, xAI):
+#     1. POST /api/providers/oauth/{provider}/start
 #          → server hits provider's device-auth endpoint
 #          → gets { user_code, verification_url, device_code, interval, expires_in }
 #          → spawns background poller thread that polls the token endpoint
@@ -11019,7 +11012,7 @@ async def _start_device_code_flow(
     provider_id: str,
     profile: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Initiate a device-code flow (Nous, OpenAI Codex, MiniMax, or xAI).
+    """Initiate a device-code flow (Nous, MiniMax, or xAI).
 
     Calls the provider's device-auth endpoint via the existing CLI helpers,
     then spawns a background poller. Returns the user-facing display fields
@@ -11075,41 +11068,6 @@ async def _start_device_code_flow(
             "verification_url": str(device_data["verification_uri_complete"]),
             "expires_in": int(device_data["expires_in"]),
             "poll_interval": int(device_data["interval"]),
-        }
-
-    if provider_id == "openai-codex":
-        # Codex uses fixed OpenAI device-auth endpoints; reuse the helper.
-        sid, _ = _new_oauth_session("openai-codex", "device_code", profile=profile)
-        # Use the helper but in a thread because it polls inline.
-        # We can't extract just the start step without refactoring auth.py,
-        # so we run the full helper in a worker and proxy the user_code +
-        # verification_url back via the session dict. The helper prints
-        # to stdout — we capture nothing here, just status.
-        threading.Thread(
-            target=_codex_full_login_worker, args=(sid,), daemon=True,
-            name=f"oauth-codex-{sid[:6]}",
-        ).start()
-        # Block briefly until the worker has populated the user_code, OR error.
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            with _oauth_sessions_lock:
-                s = _oauth_sessions.get(sid)
-            if s and (s.get("user_code") or s["status"] != "pending"):
-                break
-            await asyncio.sleep(0.1)
-        with _oauth_sessions_lock:
-            s = _oauth_sessions.get(sid, {})
-        if s.get("status") == "error":
-            raise HTTPException(status_code=500, detail=s.get("error_message") or "device-auth failed")
-        if not s.get("user_code"):
-            raise HTTPException(status_code=504, detail="device-auth timed out before returning a user code")
-        return {
-            "session_id": sid,
-            "flow": "device_code",
-            "user_code": s["user_code"],
-            "verification_url": s["verification_url"],
-            "expires_in": int(s.get("expires_in") or 900),
-            "poll_interval": int(s.get("interval") or 5),
         }
 
     if provider_id == "minimax-oauth":
@@ -11439,173 +11397,6 @@ def _xai_device_poller(session_id: str) -> None:
             sess["error_message"] = str(e)
 
 
-def _http_response_error_detail(resp: Any) -> str:
-    """Best-effort extraction of a short provider error detail."""
-    try:
-        payload = resp.json()
-    except Exception:
-        payload = None
-    if isinstance(payload, dict):
-        error = payload.get("error")
-        if isinstance(error, dict):
-            parts = [
-                str(error.get(key, "")).strip()
-                for key in ("message", "error_description", "code", "type")
-                if str(error.get(key, "")).strip()
-            ]
-            if parts:
-                return ": ".join(parts)
-        if isinstance(error, str) and error.strip():
-            return error.strip()
-        for key in ("detail", "message", "error_description"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    text = str(getattr(resp, "text", "") or "").strip()
-    return text[:500]
-
-
-def _codex_device_code_start_error(resp: Any) -> str:
-    """Dashboard-facing OpenAI Codex device-code start failure."""
-    status = getattr(resp, "status_code", "unknown")
-    detail = _http_response_error_detail(resp)
-    lower = detail.lower()
-    if "device" in lower and ("authori" in lower or "enable" in lower):
-        message = (
-            "OpenAI rejected the device-code login request. Your OpenAI "
-            "account may need device-code authorization enabled before Hermes "
-            "can start this dashboard login. Enable device-code authorization "
-            "in OpenAI, then return here and click Login again."
-        )
-    else:
-        message = (
-            "OpenAI rejected the device-code login request. Please try Login "
-            "again from the dashboard after checking your OpenAI account settings."
-        )
-    if detail:
-        return f"{message} (HTTP {status}: {detail})"
-    return f"{message} (HTTP {status})"
-
-
-def _codex_full_login_worker(session_id: str) -> None:
-    """Run the complete OpenAI Codex device-code flow.
-
-    Codex doesn't use the standard OAuth device-code endpoints; it has its
-    own ``/api/accounts/deviceauth/usercode`` (JSON body, returns
-    ``device_auth_id``) and ``/api/accounts/deviceauth/token`` (JSON body
-    polled until 200). On success the response carries an
-    ``authorization_code`` + ``code_verifier`` that get exchanged at
-    CODEX_OAUTH_TOKEN_URL with grant_type=authorization_code.
-
-    The flow is replicated inline (rather than calling
-    _codex_device_code_login) because that helper prints/blocks/polls in a
-    single function — we need to surface the user_code to the dashboard the
-    moment we receive it, well before polling completes.
-    """
-    try:
-        import httpx
-        from hermes_cli.auth import (
-            CODEX_OAUTH_CLIENT_ID,
-            CODEX_OAUTH_TOKEN_URL,
-            DEFAULT_CODEX_BASE_URL,
-        )
-        issuer = "https://auth.openai.com"
-
-        # Step 1: request device code
-        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
-            resp = client.post(
-                f"{issuer}/api/accounts/deviceauth/usercode",
-                json={"client_id": CODEX_OAUTH_CLIENT_ID},
-                headers={"Content-Type": "application/json"},
-            )
-        if resp.status_code != 200:
-            raise RuntimeError(_codex_device_code_start_error(resp))
-        device_data = resp.json()
-        user_code = device_data.get("user_code", "")
-        device_auth_id = device_data.get("device_auth_id", "")
-        poll_interval = max(3, int(device_data.get("interval", "5")))
-        if not user_code or not device_auth_id:
-            raise RuntimeError("device-code response missing user_code or device_auth_id")
-        verification_url = f"{issuer}/codex/device"
-        with _oauth_sessions_lock:
-            sess = _oauth_sessions.get(session_id)
-            if not sess:
-                return
-            sess["user_code"] = user_code
-            sess["verification_url"] = verification_url
-            sess["device_auth_id"] = device_auth_id
-            sess["interval"] = poll_interval
-            sess["expires_in"] = 15 * 60  # OpenAI's effective limit
-            sess["expires_at"] = time.time() + sess["expires_in"]
-
-        # Step 2: poll until authorized
-        deadline = time.monotonic() + sess["expires_in"]
-        code_resp = None
-        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
-            while time.monotonic() < deadline:
-                time.sleep(poll_interval)
-                poll = client.post(
-                    f"{issuer}/api/accounts/deviceauth/token",
-                    json={"device_auth_id": device_auth_id, "user_code": user_code},
-                    headers={"Content-Type": "application/json"},
-                )
-                if poll.status_code == 200:
-                    code_resp = poll.json()
-                    break
-                if poll.status_code in {403, 404}:
-                    continue  # user hasn't authorized yet
-                raise RuntimeError(f"deviceauth/token poll returned {poll.status_code}")
-
-        if code_resp is None:
-            with _oauth_sessions_lock:
-                sess["status"] = "expired"
-                sess["error_message"] = "Device code expired before approval"
-            return
-
-        # Step 3: exchange authorization_code for tokens
-        authorization_code = code_resp.get("authorization_code", "")
-        code_verifier = code_resp.get("code_verifier", "")
-        if not authorization_code or not code_verifier:
-            raise RuntimeError("device-auth response missing authorization_code/code_verifier")
-        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
-            token_resp = client.post(
-                CODEX_OAUTH_TOKEN_URL,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": authorization_code,
-                    "redirect_uri": f"{issuer}/deviceauth/callback",
-                    "client_id": CODEX_OAUTH_CLIENT_ID,
-                    "code_verifier": code_verifier,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-        if token_resp.status_code != 200:
-            raise RuntimeError(f"token exchange returned {token_resp.status_code}")
-        tokens = token_resp.json()
-        access_token = tokens.get("access_token", "")
-        refresh_token = tokens.get("refresh_token", "")
-        if not access_token:
-            raise RuntimeError("token exchange did not return access_token")
-
-        from hermes_cli.auth import _save_codex_tokens
-
-        with _profile_scope(_oauth_session_profile(session_id)):
-            _save_codex_tokens({
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-            })
-        with _oauth_sessions_lock:
-            sess["status"] = "approved"
-        _log.info("oauth/device: openai-codex login completed (session=%s)", session_id)
-    except Exception as e:
-        _log.warning("codex device-code worker failed (session=%s): %s", session_id, e)
-        with _oauth_sessions_lock:
-            s = _oauth_sessions.get(session_id)
-            if s:
-                s["status"] = "error"
-                s["error_message"] = str(e)
-
-
 @app.post("/api/providers/oauth/{provider_id}/start")
 async def start_oauth_login(
     provider_id: str,
@@ -11673,7 +11464,7 @@ async def poll_oauth_session(
 ):
     """Poll a session's status (no auth — read-only state).
 
-    Shared by the device-code flows (Nous, OpenAI Codex, MiniMax, xAI).
+    Shared by the device-code flows (Nous, MiniMax, xAI).
     Each surfaces progress through the same background-worker-updated
     ``status`` field, so a single poll endpoint serves them all.
     """
@@ -20314,6 +20105,28 @@ def _maybe_open_browser(
     threading.Thread(target=_open, daemon=True).start()
 
 
+_DASHBOARD_WS_MAX_SIZE = 64 * 1024 * 1024
+
+
+def _dashboard_websocket_options(host: str) -> Dict[str, Any]:
+    """Return uvicorn WebSocket limits and keepalive settings.
+
+    Dashboard chat sends JSON-RPC prompt payloads over ``/api/ws``. Pasted
+    images and other rich inputs are base64-expanded on that wire, so
+    uvicorn's 16 MiB default can close an otherwise healthy LMS-style chat
+    with code 1009 (``Max decompressed message size exceeded``). The TUI then
+    reports the transport loss as ``gateway exited`` even though the dashboard
+    process is still running. Keep a finite authenticated-transport ceiling,
+    but raise it enough for the input sizes Hermes supports elsewhere.
+    """
+    is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    return {
+        "ws_max_size": _DASHBOARD_WS_MAX_SIZE,
+        "ws_ping_interval": None if is_loopback else 20.0,
+        "ws_ping_timeout": None if is_loopback else 20.0,
+    }
+
+
 def start_server(
     host: str = "127.0.0.1",
     port: int = 9119,
@@ -20487,7 +20300,7 @@ def start_server(
     # (idle timeout ~100s) where half-open IS a real failure mode, so keep the
     # ping at 20/20 to detect it promptly and stay under the tunnel's idle
     # window.
-    _is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    websocket_options = _dashboard_websocket_options(host)
     config = uvicorn.Config(
         app, host=host, port=port, log_level="warning",
         # proxy_headers defaults to False so _ws_client_is_allowed sees
@@ -20502,8 +20315,7 @@ def start_server(
         # disables the protocol ping (None) so an event-loop stall can never
         # trigger a false disconnect; a genuinely dead local client is still
         # reaped via the WebSocketDisconnect → disconnect/reap path.
-        ws_ping_interval=None if _is_loopback else 20.0,
-        ws_ping_timeout=None if _is_loopback else 20.0,
+        **websocket_options,
     )
     server = uvicorn.Server(config)
 

@@ -3,9 +3,10 @@ import type { DashboardTheme, ThemeTypography, ThemeLayout } from "./types";
 /**
  * Built-in dashboard themes.
  *
- * Each theme defines its own palette, typography, and layout so switching
- * themes produces visible changes beyond just color — fonts, density, and
- * corner-radius all shift to match the theme's personality.
+ * Themes intentionally share one typography and geometry system. Switching
+ * themes changes colour, not the dashboard's information hierarchy or control
+ * sizing. This keeps every surface familiar and limits the active UI to one
+ * body/display family plus one monospace family.
  *
  * Theme names must stay in sync with the backend's
  * `_BUILTIN_DASHBOARD_THEMES` list in `hermes_cli/web_server.py`.
@@ -65,18 +66,8 @@ export const midnightTheme: DashboardTheme = {
     warmGlow: "rgba(167, 139, 250, 0.32)",
     noiseOpacity: 0.8,
   },
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"Inter", ${SYSTEM_SANS}`,
-    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
-    fontUrl:
-      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
-    letterSpacing: "-0.005em",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    radius: "0.75rem",
-  },
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
 };
 
 export const emberTheme: DashboardTheme = {
@@ -90,17 +81,8 @@ export const emberTheme: DashboardTheme = {
     warmGlow: "rgba(249, 115, 22, 0.38)",
     noiseOpacity: 1,
   },
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"Spectral", Georgia, "Times New Roman", serif`,
-    fontMono: `"IBM Plex Mono", ${SYSTEM_MONO}`,
-    fontUrl:
-      "https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    radius: "0.25rem",
-  },
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
   colorOverrides: {
     destructive: "#c92d0f",
     warning: "#f97316",
@@ -118,17 +100,8 @@ export const monoTheme: DashboardTheme = {
     warmGlow: "rgba(255, 255, 255, 0.1)",
     noiseOpacity: 0.6,
   },
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"IBM Plex Sans", ${SYSTEM_SANS}`,
-    fontMono: `"IBM Plex Mono", ${SYSTEM_MONO}`,
-    fontUrl:
-      "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    radius: "0",
-  },
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
 };
 
 export const slateTheme: DashboardTheme = {
@@ -142,18 +115,8 @@ export const slateTheme: DashboardTheme = {
     warmGlow: "rgba(255, 255, 255, 0.06)",
     noiseOpacity: 0,
   },
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"DM Sans", ${SYSTEM_SANS}`,
-    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
-    fontUrl:
-      "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap",
-    letterSpacing: "-0.004em",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    radius: "0.625rem",
-  },
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
   colorOverrides: {
     success: "#34c77b",
     warning: "#e5a93d",
@@ -179,17 +142,8 @@ export const cyberpunkTheme: DashboardTheme = {
     warmGlow: "rgba(0, 255, 136, 0.22)",
     noiseOpacity: 1.2,
   },
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"Share Tech Mono", "JetBrains Mono", ${SYSTEM_MONO}`,
-    fontMono: `"Share Tech Mono", "JetBrains Mono", ${SYSTEM_MONO}`,
-    fontUrl:
-      "https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;700&display=swap",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    radius: "0",
-  },
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
   colorOverrides: {
     success: "#00ff88",
     warning: "#ffd700",
@@ -208,17 +162,8 @@ export const roseTheme: DashboardTheme = {
     warmGlow: "rgba(249, 168, 212, 0.3)",
     noiseOpacity: 0.9,
   },
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"Fraunces", Georgia, serif`,
-    fontMono: `"DM Mono", ${SYSTEM_MONO}`,
-    fontUrl:
-      "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Mono:wght@400;500&display=swap",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    radius: "1rem",
-  },
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
 };
 
 /** Light mode — vivid Nous-blue accents on a cream canvas. */

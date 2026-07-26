@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSessionTitle, titleFromSessionInfoPayload } from "./chat-title";
+import {
+  normalizeSessionTitle,
+  selectedChatPageTitle,
+  titleFromSessionInfoPayload,
+} from "./chat-title";
 
 describe("normalizeSessionTitle", () => {
   it("trims non-empty session titles", () => {
@@ -13,6 +17,18 @@ describe("normalizeSessionTitle", () => {
     expect(normalizeSessionTitle("   ")).toBeNull();
     expect(normalizeSessionTitle(null)).toBeNull();
     expect(normalizeSessionTitle(42)).toBeNull();
+  });
+});
+
+describe("selectedChatPageTitle", () => {
+  it("shows both the page and selected conversation", () => {
+    expect(selectedChatPageTitle("Chat", "Fix mobile navigation")).toBe(
+      "Chat · Fix mobile navigation",
+    );
+  });
+
+  it("keeps the ordinary page title for a new untitled chat", () => {
+    expect(selectedChatPageTitle("Chat", null)).toBe("Chat");
   });
 });
 
