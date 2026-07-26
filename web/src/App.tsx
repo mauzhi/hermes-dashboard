@@ -31,6 +31,7 @@ import {
   FolderOpen,
   FileText,
   Globe,
+  HardDrive,
   Heart,
   KeyRound,
   Menu,
@@ -90,6 +91,7 @@ import PairingPage from "@/pages/PairingPage";
 import ChannelsPage from "@/pages/ChannelsPage";
 import WebhooksPage from "@/pages/WebhooksPage";
 import SystemPage from "@/pages/SystemPage";
+import StoragePage from "@/pages/StoragePage";
 import ChatPage from "@/pages/ChatPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
@@ -161,6 +163,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/channels": ChannelsPage,
   "/webhooks": WebhooksPage,
   "/system": SystemPage,
+  "/storage": StoragePage,
   "/profiles": ProfilesPage,
   "/profiles/new": ProfileBuilderPage,
   "/config": ConfigPage,
@@ -211,6 +214,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
   { path: "/config", labelKey: "config", label: "Settings", icon: Settings, group: "System" },
   { path: "/env", labelKey: "keys", label: "API keys", icon: KeyRound, group: "System" },
   { path: "/system", label: "System", icon: Wrench, group: "System" },
+  { path: "/storage", label: "Storage", icon: HardDrive, group: "System" },
   {
     path: "/docs",
     labelKey: "documentation",
@@ -235,6 +239,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Sparkles,
   Terminal,
   Globe,
+  HardDrive,
   Database,
   Shield,
   Users,
@@ -373,6 +378,7 @@ export default function App() {
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
+  const mobileDrawerWasOpenRef = useRef(false);
 
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -479,7 +485,28 @@ export default function App() {
   useEffect(() => {
     if (!mobileOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileOpen(false);
+      if (e.key === "Escape") {
+        setMobileOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const drawer = document.getElementById("app-sidebar");
+      if (!drawer) return;
+      const focusable = Array.from(
+        drawer.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -488,6 +515,22 @@ export default function App() {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
+  }, [mobileOpen]);
+
+  // Treat the mobile sidebar as a real drawer: move focus into it when it
+  // opens and return focus to the trigger after navigation or dismissal.
+  useEffect(() => {
+    if (mobileOpen) {
+      mobileDrawerWasOpenRef.current = true;
+      const frame = requestAnimationFrame(() =>
+        document.getElementById("mobile-nav-close")?.focus(),
+      );
+      return () => cancelAnimationFrame(frame);
+    }
+    if (mobileDrawerWasOpenRef.current) {
+      mobileDrawerWasOpenRef.current = false;
+      document.getElementById("mobile-nav-open")?.focus();
+    }
   }, [mobileOpen]);
 
   useEffect(() => {
@@ -517,8 +560,8 @@ export default function App() {
       <header
         className={cn(
           "lg:hidden fixed top-0 left-0 right-0 z-40 min-h-14",
-          "flex items-center gap-2 px-4 py-2",
-          "border-b border-current/20",
+          "flex items-center gap-3 px-3 py-2",
+          "border-b border-current/15 shadow-[0_8px_24px_rgba(0,0,0,0.12)]",
           "bg-background-base",
         )}
         style={{
@@ -528,20 +571,32 @@ export default function App() {
         }}
       >
         <Button
+          id="mobile-nav-open"
           ghost
           size="icon"
           onClick={() => setMobileOpen(true)}
           aria-label={t.app.openNavigation}
           aria-expanded={mobileOpen}
           aria-controls="app-sidebar"
-          className="text-text-secondary hover:text-midground"
+          className="h-11 w-11 shrink-0 rounded-xl text-text-secondary hover:bg-midground/6 hover:text-midground"
         >
-          <Menu />
+          <Menu className="h-5 w-5" />
         </Button>
 
-        <Typography className="font-bold text-[0.95rem] leading-[0.95] tracking-[0.05em] text-midground">
-          {t.app.brand}
-        </Typography>
+        <span
+          aria-hidden="true"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-midground text-[0.8rem] font-semibold text-background-base"
+        >
+          M
+        </span>
+        <div className="min-w-0 leading-none">
+          <Typography className="truncate text-[0.9rem] font-semibold leading-tight tracking-[-0.025em] text-midground">
+            Mauzhi Hermes Agent
+          </Typography>
+          <span className="mt-1 block text-[0.64rem] font-medium text-text-tertiary">
+            Control center
+          </span>
+        </div>
       </header>
 
       {mobileOpen && (
@@ -551,7 +606,7 @@ export default function App() {
           onClick={closeMobile}
           className={cn(
             "lg:hidden fixed inset-0 z-40 p-0 block",
-            "bg-black/70",
+            "bg-black/65 backdrop-blur-[2px]",
           )}
         />
       )}
@@ -564,10 +619,15 @@ export default function App() {
           <aside
             id="app-sidebar"
             aria-label={t.app.navigation}
+            aria-hidden={isMobile && !mobileOpen ? true : undefined}
+            aria-modal={isMobile && mobileOpen ? true : undefined}
+            inert={isMobile && !mobileOpen ? true : undefined}
+            role={isMobile && mobileOpen ? "dialog" : undefined}
             className={cn(
-              "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-60 min-h-0 flex-col font-sans",
-              "border-r border-current/20",
+              "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-[min(20rem,calc(100vw-2rem))] min-h-0 flex-col pb-[env(safe-area-inset-bottom,0px)] font-sans lg:w-60 lg:pb-0",
+              "border-r border-current/15",
               "bg-background-base",
+              "shadow-[12px_0_32px_rgba(0,0,0,0.16)]",
               "transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
               "lg:sticky lg:top-0 lg:translate-x-0 lg:shrink-0 lg:overflow-hidden",
@@ -575,15 +635,14 @@ export default function App() {
               collapsed && "lg:w-14",
             )}
             style={{
-              background: "var(--component-sidebar-background)",
               clipPath: "var(--component-sidebar-clip-path)",
               borderImage: "var(--component-sidebar-border-image)",
             }}
           >
             <div
               className={cn(
-                "flex h-14 shrink-0 items-center gap-2",
-                "border-b border-current/20",
+                "flex h-16 shrink-0 items-center gap-2",
+                "border-b border-current/15",
                 collapsed ? "lg:justify-center lg:px-0" : "px-4 justify-between",
               )}
             >
@@ -597,21 +656,33 @@ export default function App() {
 
                 <span
                   aria-hidden="true"
-                  className="h-2 w-2 rounded-full bg-success shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-success)_12%,transparent)]"
-                />
-                <Typography className="text-[0.95rem] font-medium leading-none tracking-[-0.02em] text-midground">
-                  Hermes
-                </Typography>
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-midground text-[0.8rem] font-semibold text-background-base shadow-[0_0_0_1px_color-mix(in_srgb,var(--midground-base)_16%,transparent),0_4px_14px_rgba(0,0,0,0.2)]"
+                >
+                  M
+                </span>
+                <div className="min-w-0 leading-none">
+                  <Typography className="truncate text-[0.9rem] font-semibold leading-tight tracking-[-0.025em] text-midground">
+                    Mauzhi Hermes Agent
+                  </Typography>
+                  <span className="mt-1 flex items-center gap-1.5 text-[0.65rem] font-medium text-text-tertiary">
+                    <span
+                      aria-hidden="true"
+                      className="h-1.5 w-1.5 rounded-full bg-success shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-success)_10%,transparent)]"
+                    />
+                    Control center
+                  </span>
+                </div>
               </div>
 
               <Button
+                id="mobile-nav-close"
                 ghost
                 size="icon"
                 onClick={closeMobile}
                 aria-label={t.app.closeNavigation}
-                className="lg:hidden text-text-secondary hover:text-midground"
+                className="h-11 w-11 shrink-0 rounded-xl text-text-secondary hover:bg-midground/6 hover:text-midground lg:hidden"
               >
-                <X />
+                <X className="h-5 w-5" />
               </Button>
 
               <Button
@@ -634,7 +705,7 @@ export default function App() {
             <ProfileSwitcher collapsed={isDesktopCollapsed} />
 
             <nav
-              className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-current/10 py-2"
+              className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden py-2.5"
               aria-label={t.app.navigation}
             >
               {NAV_GROUPS.map((group, groupIndex) => {
@@ -654,15 +725,15 @@ export default function App() {
                   <div
                     aria-labelledby={headingId}
                     className={cn(
-                      "flex flex-col pb-1.5",
-                      groupIndex > 0 && "border-t border-current/8 pt-1.5",
+                      "flex flex-col pb-2",
+                      groupIndex > 0 && "border-t border-current/8 pt-2",
                     )}
                     key={group}
                     role="group"
                   >
                     <span
                       className={cn(
-                        "px-4 pb-1 pt-1.5 text-[0.68rem] font-medium tracking-[0.08em] text-text-tertiary",
+                        "px-5 pb-1.5 pt-1 text-[0.64rem] font-semibold uppercase tracking-[0.11em] text-text-tertiary",
                         isDesktopCollapsed && "lg:hidden",
                       )}
                       id={headingId}
@@ -688,12 +759,12 @@ export default function App() {
               {sidebarNav.pluginItems.length > 0 && (
                 <div
                   aria-labelledby="hermes-sidebar-plugin-nav-heading"
-                  className="flex flex-col border-t border-current/10 pb-2"
+                  className="flex flex-col border-t border-current/10 pb-2 pt-2"
                   role="group"
                 >
                   <span
                     className={cn(
-                      "px-4 pb-1 pt-1.5 text-[0.68rem] font-medium tracking-[0.08em] text-text-tertiary",
+                      "px-5 pb-1.5 pt-1 text-[0.64rem] font-semibold uppercase tracking-[0.11em] text-text-tertiary",
                       isDesktopCollapsed && "lg:hidden",
                     )}
                     id="hermes-sidebar-plugin-nav-heading"
@@ -898,14 +969,14 @@ function SidebarNavLink({
         onBlur={collapsed ? hideTooltip : undefined}
         className={({ isActive }) =>
           cn(
-            "group/nav relative flex items-center gap-3 rounded-md",
+            "group/nav relative flex min-h-11 items-center gap-3 rounded-lg lg:min-h-9",
             "px-3 py-2",
-            "font-sans text-sm font-medium tracking-[-0.01em]",
+            "font-sans text-[0.86rem] font-medium tracking-[-0.012em]",
             "whitespace-nowrap transition-colors cursor-pointer",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground/60",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background-base",
             isActive
-              ? "bg-midground/8 font-semibold text-midground"
-              : "text-text-secondary hover:bg-midground/5 hover:text-midground",
+              ? "bg-midground/10 font-semibold text-midground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--midground-base)_12%,transparent),0_1px_2px_rgba(0,0,0,0.14)]"
+              : "text-text-secondary hover:bg-midground/6 hover:text-midground",
           )
         }
         style={{
@@ -920,7 +991,7 @@ function SidebarNavLink({
                 className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-current"
               />
             )}
-            <Icon className="h-4 w-4 shrink-0" />
+            <Icon className="h-4 w-4 shrink-0 opacity-90 transition-opacity group-hover/nav:opacity-100" />
 
             <span
               className={cn(
@@ -1152,7 +1223,7 @@ function SystemActionButton({
         onBlur={collapsed ? hideTooltip : undefined}
         type="button"
         className={cn(
-          "group/action relative flex w-full items-center gap-3",
+          "group/action relative flex min-h-11 w-full items-center gap-3 lg:min-h-0",
           "px-5 py-2.5",
           "font-sans text-display text-xs tracking-[0.1em]",
           "whitespace-nowrap transition-colors cursor-pointer",
@@ -1405,8 +1476,3 @@ interface SystemActionItem {
   runningLabel: string;
   spin: boolean;
 }
-  HardDrive,
-import StoragePage from "@/pages/StoragePage";
-  "/storage": StoragePage,
-  { path: "/storage", label: "Storage", icon: HardDrive, group: "System" },
-  HardDrive,

@@ -730,6 +730,21 @@ class TestSystemStatsEndpoint:
         assert body["filesystem"]["mount"] == str(mount)
         assert scanned_roots[0] == ("server", mount)
 
+    def test_storage_mountinfo_resolves_same_device_bind_mount(self):
+        from pathlib import Path
+        import hermes_cli.web_server as ws
+
+        mountinfo = "\n".join(
+            [
+                "24 1 8:1 / / rw,relatime - ext4 /dev/sda1 rw",
+                "25 24 8:1 /srv/hermes /home/alek/.hermes rw,relatime - ext4 /dev/sda1 rw,bind",
+            ]
+        )
+
+        assert ws._storage_mount_root_from_mountinfo(
+            Path("/home/alek/.hermes/profiles/default"), mountinfo
+        ) == Path("/home/alek/.hermes")
+
     @pytest.mark.asyncio
     async def test_storage_scope_reports_subprocess_start_failure(self, monkeypatch, tmp_path):
         import hermes_cli.web_server as ws
@@ -746,6 +761,50 @@ class TestSystemStatsEndpoint:
         assert result["items"] == []
         assert result["visible_bytes"] == 0
         assert result["error"] == "Directory breakdown could not be started."
+
+    @pytest.mark.asyncio
+    async def test_storage_scope_timeout_kills_and_drains_process(
+        self, monkeypatch, tmp_path
+    ):
+        import asyncio
+        import hermes_cli.web_server as ws
+
+        class SlowStdout:
+            async def readline(self):
+                await asyncio.sleep(60)
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = SlowStdout()
+                self.returncode = None
+                self.killed = False
+                self.drained = False
+
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+
+            async def wait(self):
+                return self.returncode
+
+            async def communicate(self):
+                self.drained = True
+                return (b"", b"")
+
+        process = FakeProcess()
+        monkeypatch.setattr(ws.shutil, "which", lambda _name: "/usr/bin/du")
+        monkeypatch.setattr(ws, "_STORAGE_SCAN_TIMEOUT_SECONDS", 0.001)
+        monkeypatch.setattr(
+            ws.asyncio,
+            "create_subprocess_exec",
+            lambda *_args, **_kwargs: asyncio.sleep(0, result=process),
+        )
+
+        result = await ws._storage_du_scope("home", "Home", tmp_path)
+
+        assert process.killed is True
+        assert process.drained is True
+        assert result["error"] == "The scan timed out; results may be incomplete."
 
     @pytest.mark.asyncio
     async def test_concurrent_forced_storage_refreshes_share_one_scan(self, monkeypatch):
@@ -787,6 +846,45 @@ class TestSystemStatsEndpoint:
         await asyncio.gather(first, second)
 
         assert calls == 3
+
+    @pytest.mark.asyncio
+    async def test_concurrent_failed_storage_refreshes_share_one_failure(
+        self, monkeypatch
+    ):
+        import asyncio
+        from types import SimpleNamespace
+        import hermes_cli.web_server as ws
+
+        calls = 0
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def failing_scope(*_args):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                entered.set()
+                await release.wait()
+            raise RuntimeError("scan failed")
+
+        monkeypatch.setattr(ws, "_safe_storage_du_scope", failing_scope)
+        monkeypatch.setattr(
+            ws.shutil,
+            "disk_usage",
+            lambda _path: SimpleNamespace(total=100, used=25, free=75),
+        )
+        ws.app.state.storage_usage_cache = None
+        ws.app.state.storage_usage_last_failure = None
+        ws.app.state.storage_usage_lock = asyncio.Lock()
+
+        first = asyncio.create_task(ws.get_system_storage(refresh=True))
+        await entered.wait()
+        second = asyncio.create_task(ws.get_system_storage(refresh=True))
+        release.set()
+        results = await asyncio.gather(first, second, return_exceptions=True)
+
+        assert calls == 3
+        assert all(getattr(result, "status_code", None) == 503 for result in results)
 
 
 class TestCuratorEndpoints:

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { copyTextToClipboard } from "./clipboard";
+import {
+  copyTextToClipboard,
+  isClipboardPasteTargetReady,
+  readTextFromClipboard,
+} from "./clipboard";
 
 const originalNavigator = globalThis.navigator;
 const originalDocument = globalThis.document;
@@ -110,5 +114,53 @@ describe("copyTextToClipboard", () => {
     setGlobal("document", undefined);
 
     await expect(copyTextToClipboard("CODEX-1234")).resolves.toBe(false);
+  });
+});
+
+describe("readTextFromClipboard", () => {
+  it("returns clipboard text when browser read access is available", async () => {
+    const readText = vi.fn().mockResolvedValue("paste me");
+    setGlobal(
+      "navigator",
+      { clipboard: { readText } } as unknown as Navigator,
+    );
+
+    await expect(readTextFromClipboard()).resolves.toBe("paste me");
+    expect(readText).toHaveBeenCalledOnce();
+  });
+
+  it("returns null when clipboard access is unavailable or denied", async () => {
+    setGlobal("navigator", {} as Navigator);
+    await expect(readTextFromClipboard()).resolves.toBeNull();
+
+    setGlobal(
+      "navigator",
+      {
+        clipboard: {
+          readText: vi.fn().mockRejectedValue(new Error("denied")),
+        },
+      } as unknown as Navigator,
+    );
+    await expect(readTextFromClipboard()).resolves.toBeNull();
+  });
+});
+
+describe("isClipboardPasteTargetReady", () => {
+  it("rejects a terminal replaced while clipboard permission was pending", () => {
+    const captured = {};
+
+    expect(isClipboardPasteTargetReady(captured, {}, true)).toBe(false);
+  });
+
+  it("rejects a disconnected terminal even when its identity is unchanged", () => {
+    const captured = {};
+
+    expect(isClipboardPasteTargetReady(captured, captured, false)).toBe(false);
+  });
+
+  it("accepts the same terminal while its connection remains writable", () => {
+    const captured = {};
+
+    expect(isClipboardPasteTargetReady(captured, captured, true)).toBe(true);
   });
 });

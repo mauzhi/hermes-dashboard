@@ -53,7 +53,7 @@ export function ProfileSwitcher({ collapsed }: ProfileSwitcherProps) {
         className={cn(
           "min-w-0 flex-1",
           collapsed && "lg:hidden",
-          "[&_button]:h-7 [&_button]:border-border [&_button]:bg-background [&_button]:px-2 [&_button]:text-xs",
+          "[&_button]:h-11 sm:[&_button]:h-7 [&_button]:border-border [&_button]:bg-background [&_button]:px-2 [&_button]:text-xs",
           "[&_button]:font-sans [&_button]:normal-case [&_button]:tracking-normal",
           "[&_[role=listbox]>div]:font-sans [&_[role=listbox]>div]:text-xs",
           "[&_[role=listbox]>div]:normal-case [&_[role=listbox]>div]:tracking-normal",

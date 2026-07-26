@@ -25,7 +25,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { cn } from "@/lib/utils";
-import { Copy, PanelRight, RotateCcw, X } from "lucide-react";
+import { ClipboardPaste, Copy, PanelRight, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
@@ -35,6 +35,10 @@ import { ChatSessionList } from "@/components/ChatSessionList";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
+import {
+  isClipboardPasteTargetReady,
+  readTextFromClipboard,
+} from "@/lib/clipboard";
 import { latchChatActivation } from "@/lib/chat-activation";
 import { normalizeSessionTitle } from "@/lib/chat-title";
 import {
@@ -186,7 +190,11 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       : null,
   );
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [pasteState, setPasteState] = useState<"idle" | "pasted">("idle");
+  const [pasteFeedback, setPasteFeedback] = useState<string | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copySubmitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pasteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const forceFreshPtyRef = useRef(false);
@@ -441,20 +449,59 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const handleCopyLast = () => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (copySubmitRef.current) return;
     // Send the slash as a burst, wait long enough for Ink's tokenizer to
     // emit a keypress event for each character (not coalesce them into a
     // paste), then send Return as its own event.  The timing here is
     // empirical — 100ms is safely past Node's default stdin coalescing
     // window and well inside UI responsiveness.
     ws.send("/copy");
-    setTimeout(() => {
-      const s = wsRef.current;
-      if (s && s.readyState === WebSocket.OPEN) s.send("\r");
+    copySubmitRef.current = setTimeout(() => {
+      copySubmitRef.current = null;
+      if (wsRef.current === ws && ws.readyState === WebSocket.OPEN) ws.send("\r");
     }, 100);
     setCopyState("copied");
     if (copyResetRef.current) clearTimeout(copyResetRef.current);
     copyResetRef.current = setTimeout(() => setCopyState("idle"), 1500);
     termRef.current?.focus();
+  };
+
+  const handlePasteClipboard = async () => {
+    const term = termRef.current;
+    if (!term) return;
+    const text = await readTextFromClipboard();
+    const connectionOpen =
+      wsRef.current?.readyState === WebSocket.OPEN &&
+      !shouldBlockPtyInput(ptyStateRef.current);
+    if (!isClipboardPasteTargetReady(term, termRef.current, connectionOpen)) {
+      if (termRef.current === term) {
+        setPasteFeedback("Chat is reconnecting. Try paste again when connected.");
+        if (pasteResetRef.current) clearTimeout(pasteResetRef.current);
+        pasteResetRef.current = setTimeout(() => setPasteFeedback(null), 3000);
+      }
+      return;
+    }
+    if (text === null) {
+      setPasteFeedback("Clipboard access is unavailable.");
+      if (pasteResetRef.current) clearTimeout(pasteResetRef.current);
+      pasteResetRef.current = setTimeout(() => setPasteFeedback(null), 3000);
+      return;
+    }
+    if (!text) {
+      setPasteFeedback("Clipboard is empty.");
+      if (pasteResetRef.current) clearTimeout(pasteResetRef.current);
+      pasteResetRef.current = setTimeout(() => setPasteFeedback(null), 3000);
+      return;
+    }
+    setPasteFeedback("Pasted clipboard text.");
+    term.paste(text);
+    term.focus();
+    setPasteState("pasted");
+    if (pasteResetRef.current) clearTimeout(pasteResetRef.current);
+    pasteResetRef.current = setTimeout(() => {
+      setPasteState("idle");
+      setPasteFeedback(null);
+    }, 1500);
   };
 
   useEffect(() => {
@@ -1177,6 +1224,14 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         clearTimeout(copyResetRef.current);
         copyResetRef.current = null;
       }
+      if (copySubmitRef.current) {
+        clearTimeout(copySubmitRef.current);
+        copySubmitRef.current = null;
+      }
+      if (pasteResetRef.current) {
+        clearTimeout(pasteResetRef.current);
+        pasteResetRef.current = null;
+      }
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -1343,9 +1398,8 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
           className={cn(
             "font-mondwest fixed top-0 right-0 z-[60] flex h-dvh max-h-dvh w-64 min-w-0 flex-col antialiased",
             "border-l border-current/20 text-midground",
-            "bg-background-base/95",
+            "bg-background-base",
             "transition-transform duration-200 ease-out",
-            "[background:var(--component-sidebar-background)]",
             "[clip-path:var(--component-sidebar-clip-path)]",
             "[border-image:var(--component-sidebar-border-image)]",
             mobilePanelOpen
@@ -1470,30 +1524,53 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             </div>
           )}
 
-          <Button
-            ghost
-            onClick={handleCopyLast}
-            title="Copy last assistant response as raw markdown"
-            aria-label="Copy last assistant response"
+          <div
             className={cn(
-              "absolute z-10",
-              "normal-case tracking-normal font-normal",
-              "rounded border border-current/30",
-              "bg-black/20",
-              "opacity-70 hover:opacity-100 hover:border-current/60",
-              "transition-opacity duration-150",
-              "bottom-2 right-2 px-2 py-1 text-xs sm:bottom-3 sm:right-3 sm:px-2.5 sm:py-1.5",
+              "absolute z-10 flex items-center gap-1.5",
+              "bottom-2 right-2 sm:bottom-3 sm:right-3",
               "lg:bottom-4 lg:right-4",
             )}
             style={{ color: terminalFg }}
           >
-            <span className="inline-flex items-center gap-1.5">
-              <Copy className="h-3 w-3 shrink-0" />
-              <span className="hidden min-[400px]:inline tracking-wide">
-                {copyState === "copied" ? "copied" : "copy last response"}
-              </span>
+            <span
+              aria-live="polite"
+              className={cn(
+                "pointer-events-none absolute bottom-full right-0 mb-1 w-max max-w-[min(15rem,calc(100vw-2rem))] rounded bg-black/90 px-2 py-1 text-xs",
+                pasteFeedback ? "opacity-100" : "opacity-0",
+              )}
+              role="status"
+            >
+              {pasteFeedback ?? ""}
             </span>
-          </Button>
+            <Button
+              ghost
+              onClick={() => void handlePasteClipboard()}
+              title="Paste clipboard text into chat"
+              aria-label="Paste clipboard text into chat"
+              className="h-11 min-w-11 rounded border border-current/35 bg-black/55 px-2 py-1 text-xs font-normal normal-case tracking-normal opacity-90 transition-opacity hover:border-current/60 hover:opacity-100 lg:hidden"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <ClipboardPaste className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden min-[400px]:inline tracking-wide">
+                  {pasteState === "pasted" ? "pasted" : "paste"}
+                </span>
+              </span>
+            </Button>
+            <Button
+              ghost
+              onClick={handleCopyLast}
+              title="Copy last assistant response as raw markdown"
+              aria-label="Copy last assistant response"
+              className="h-11 min-w-11 rounded border border-current/35 bg-black/55 px-2 py-1 text-xs font-normal normal-case tracking-normal opacity-90 transition-opacity hover:border-current/60 hover:opacity-100 lg:h-auto lg:min-w-0"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Copy className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden min-[400px]:inline tracking-wide">
+                  {copyState === "copied" ? "copied" : "copy last response"}
+                </span>
+              </span>
+            </Button>
+          </div>
         </div>
 
         {!narrow && (
@@ -1501,7 +1578,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             id="chat-side-panel"
             role="complementary"
             aria-label={modelToolsLabel}
-            className="flex min-h-0 shrink-0 flex-col gap-3 overflow-hidden lg:h-full lg:w-60"
+            className="flex min-h-0 shrink-0 flex-col gap-3 overflow-hidden bg-background-base lg:h-full lg:w-60"
           >
             {/* Model picker — keeps the rail thin. */}
             <div className="shrink-0">

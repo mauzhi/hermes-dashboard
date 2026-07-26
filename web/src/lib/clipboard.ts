@@ -54,3 +54,25 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 
   return copied;
 }
+
+/** Read plain text from the browser clipboard after an explicit user action. */
+export async function readTextFromClipboard(): Promise<string | null> {
+  const clipboard =
+    typeof navigator === "undefined" ? undefined : navigator.clipboard;
+  if (typeof clipboard?.readText !== "function") return null;
+
+  try {
+    return await clipboard.readText();
+  } catch {
+    return null;
+  }
+}
+
+/** Guard async clipboard reads against terminal replacement or disconnection. */
+export function isClipboardPasteTargetReady<T>(
+  capturedTarget: T,
+  currentTarget: T | null,
+  connectionOpen: boolean,
+): boolean {
+  return capturedTarget === currentTarget && connectionOpen;
+}

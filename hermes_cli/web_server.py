@@ -3520,13 +3520,49 @@ _STORAGE_SCAN_LIMIT = 16
 _STORAGE_SCAN_MAX_ENTRIES = 10_000
 
 
+def _storage_mount_root_from_mountinfo(path: Path, mountinfo: str) -> Optional[Path]:
+    """Resolve *path* against Linux mountinfo, including same-device bind mounts."""
+    target = path.resolve()
+    best: Optional[Path] = None
+    for line in mountinfo.splitlines():
+        fields = line.split()
+        if len(fields) < 5:
+            continue
+        encoded = fields[4]
+        decoded = (
+            encoded.replace(r"\040", " ")
+            .replace(r"\011", "\t")
+            .replace(r"\012", "\n")
+            .replace(r"\134", "\\")
+        )
+        candidate = Path(decoded)
+        try:
+            target.relative_to(candidate)
+        except ValueError:
+            continue
+        if best is None or len(candidate.parts) > len(best.parts):
+            best = candidate
+    return best
+
+
 def _storage_mount_root(path: Path) -> Path:
-    """Return the mounted filesystem that contains *path*."""
+    """Return the actual mounted filesystem containing *path*."""
     current = path.resolve()
-    if not current.is_dir():
-        current = current.parent
-    while current.parent != current and not os.path.ismount(current):
-        current = current.parent
+    if sys.platform.startswith("linux"):
+        try:
+            mountinfo = Path("/proc/self/mountinfo").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            mounted = _storage_mount_root_from_mountinfo(current, mountinfo)
+            if mounted is not None:
+                return mounted
+        except OSError:
+            pass
+    while not os.path.ismount(current):
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
     return current
 
 
@@ -3612,8 +3648,11 @@ async def _storage_du_scope(scope_id: str, label: str, root: Path) -> Dict[str, 
             entries_seen += 1
             if entries_seen > _STORAGE_SCAN_MAX_ENTRIES:
                 entry_limit_hit = True
-                proc.kill()
-                break
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                # Keep draining buffered stdout until EOF so process reaping
+                # cannot deadlock on a full pipe.
+                continue
 
             visible_bytes += size
             name = Path(normalized).name or normalized
@@ -3631,11 +3670,13 @@ async def _storage_du_scope(scope_id: str, label: str, root: Path) -> Dict[str, 
         timed_out = True
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
-        await proc.wait()
+        # ``wait()`` alone can deadlock while stdout=PIPE still has unread
+        # bytes. communicate() drains the pipe and reaps the child.
+        await proc.communicate()
     except asyncio.CancelledError:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
-        await proc.wait()
+        await proc.communicate()
         raise
 
     error = None
@@ -3710,6 +3751,21 @@ async def get_system_storage(refresh: bool = False):
         ):
             return {**cached[1], "cached": True}
 
+        last_failure = getattr(app.state, "storage_usage_last_failure", None)
+        if last_failure is not None and (
+            last_failure >= request_started
+            or now - last_failure < _STORAGE_REFRESH_MIN_SECONDS
+        ):
+            if cached is not None:
+                return {
+                    **cached[1],
+                    "cached": True,
+                    "refresh_error": "The latest storage refresh failed.",
+                }
+            raise HTTPException(
+                status_code=503, detail="Storage usage is temporarily unavailable."
+            )
+
         try:
             hermes_home = Path(get_hermes_home()).resolve()
             volume_root = _storage_mount_root(hermes_home)
@@ -3728,6 +3784,7 @@ async def get_system_storage(refresh: bool = False):
             raise
         except Exception:
             logging.getLogger(__name__).exception("Storage usage refresh failed")
+            app.state.storage_usage_last_failure = time.monotonic()
             if cached is not None:
                 return {
                     **cached[1],
@@ -3751,6 +3808,7 @@ async def get_system_storage(refresh: bool = False):
             "scopes": scopes,
         }
         app.state.storage_usage_cache = (time.monotonic(), result)
+        app.state.storage_usage_last_failure = None
         return result
 
 

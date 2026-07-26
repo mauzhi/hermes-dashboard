@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Check } from "lucide-react";
+import { Check, Languages } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { BottomSheet } from "@nous-research/ui/ui/components/bottom-sheet";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
@@ -72,11 +72,12 @@ export function LanguageSwitcher({ collapsed = false, dropUp = false }: Language
         aria-haspopup="listbox"
         aria-expanded={open}
         className={cn(
-          "px-2 py-1 normal-case tracking-normal font-normal text-xs text-text-secondary hover:text-foreground",
+          "h-11 min-w-11 px-2 py-1 normal-case tracking-normal font-normal text-xs text-text-secondary hover:text-foreground sm:h-auto sm:min-w-0",
           collapsed && "hover:bg-transparent",
         )}
       >
         <span className="inline-flex items-center gap-1.5">
+          <Languages aria-hidden="true" className="h-4 w-4" />
           <Typography
             className="hidden sm:inline text-display tracking-wide text-xs"
           >
