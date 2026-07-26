@@ -131,6 +131,43 @@ export const monoTheme: DashboardTheme = {
   },
 };
 
+export const slateTheme: DashboardTheme = {
+  name: "slate",
+  label: "Slate",
+  description: "Quiet near-black workspace — minimal, precise, and focused",
+  palette: {
+    background: { hex: "#0b0c0e", alpha: 1 },
+    midground: { hex: "#f2f3f5", alpha: 1 },
+    foreground: { hex: "#ffffff", alpha: 0 },
+    warmGlow: "rgba(255, 255, 255, 0.06)",
+    noiseOpacity: 0,
+  },
+  typography: {
+    ...DEFAULT_TYPOGRAPHY,
+    fontSans: `"Inter", ${SYSTEM_SANS}`,
+    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
+    fontUrl:
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap",
+    letterSpacing: "-0.006em",
+  },
+  layout: {
+    ...DEFAULT_LAYOUT,
+    radius: "0.625rem",
+  },
+  colorOverrides: {
+    success: "#34c77b",
+    warning: "#e5a93d",
+    destructive: "#ef6464",
+  },
+  terminalBackground: "#08090a",
+  terminalForeground: "#e7e9ec",
+  seriesColors: {
+    inputTokenAccent: "#a6abb3",
+    outputTokenAccent: "#f2f3f5",
+  },
+  swatchColors: ["#0b0c0e", "#717780", "#f2f3f5"],
+};
+
 export const cyberpunkTheme: DashboardTheme = {
   name: "cyberpunk",
   label: "Cyberpunk",
@@ -235,6 +272,7 @@ export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,
+  slate: slateTheme,
   cyberpunk: cyberpunkTheme,
   rose: roseTheme,
 };

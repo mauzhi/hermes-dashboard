@@ -8369,7 +8369,10 @@ class TestThemeBootstrapCSS:
     def test_builtin_theme_renders_nothing(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         from hermes_cli import web_server
-        for builtin in ("default", "midnight", "cyberpunk"):
+        assert "slate" in {
+            theme["name"] for theme in web_server._BUILTIN_DASHBOARD_THEMES
+        }
+        for builtin in ("default", "midnight", "slate", "cyberpunk"):
             monkeypatch.setattr(
                 web_server, "load_config",
                 lambda b=builtin: {"dashboard": {"theme": b}},

@@ -72,10 +72,10 @@ export const en: Translations = {
     nav: {
       analytics: "Analytics",
       chat: "Chat",
-      config: "Config",
-      cron: "Cron",
+      config: "Settings",
+      cron: "Schedules",
       documentation: "Documentation",
-      keys: "Keys",
+      keys: "API keys",
       logs: "Logs",
       models: "Models",
       profiles: "Profiles",

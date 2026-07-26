@@ -103,7 +103,12 @@ import { api } from "@/lib/api";
 import type { StatusResponse, UpdateCheckResponse } from "@/lib/api";
 
 function RootRedirect() {
-  return <Navigate to="/sessions" replace />;
+  return (
+    <Navigate
+      to={isDashboardEmbeddedChatEnabled() ? "/chat" : "/sessions"}
+      replace
+    />
+  );
 }
 
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
@@ -114,11 +119,22 @@ function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
   return <Navigate to="/sessions" replace />;
 }
 
+type NavGroup = "Workspace" | "Observe" | "Agent" | "Connect" | "System";
+
+const NAV_GROUPS: NavGroup[] = [
+  "Workspace",
+  "Observe",
+  "Agent",
+  "Connect",
+  "System",
+];
+
 const CHAT_NAV_ITEM: NavItem = {
   path: "/chat",
   labelKey: "chat",
   label: "Chat",
   icon: Terminal,
+  group: "Workspace",
 };
 
 /**
@@ -166,37 +182,41 @@ const BUILTIN_NAV_REST: NavItem[] = [
     labelKey: "sessions",
     label: "Sessions",
     icon: MessageSquare,
+    group: "Workspace",
   },
-  { path: "/files", label: "Files", icon: FolderOpen },
+  { path: "/files", label: "Files", icon: FolderOpen, group: "Workspace" },
   {
     path: "/analytics",
     labelKey: "analytics",
     label: "Analytics",
     icon: BarChart3,
+    group: "Observe",
   },
   {
     path: "/models",
     labelKey: "models",
     label: "Models",
     icon: Cpu,
+    group: "Agent",
   },
-  { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
-  { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
-  { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
-  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
-  { path: "/mcp", label: "MCP", icon: Plug },
-  { path: "/channels", label: "Channels", icon: Radio },
-  { path: "/webhooks", label: "Webhooks", icon: Webhook },
-  { path: "/pairing", label: "Pairing", icon: ShieldCheck },
-  { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
-  { path: "/config", labelKey: "config", label: "Config", icon: Settings },
-  { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
-  { path: "/system", label: "System", icon: Wrench },
+  { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText, group: "Observe" },
+  { path: "/cron", labelKey: "cron", label: "Schedules", icon: Clock, group: "Agent" },
+  { path: "/skills", labelKey: "skills", label: "Skills", icon: Package, group: "Agent" },
+  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle, group: "Agent" },
+  { path: "/mcp", label: "MCP servers", icon: Plug, group: "Agent" },
+  { path: "/channels", label: "Channels", icon: Radio, group: "Connect" },
+  { path: "/webhooks", label: "Webhooks", icon: Webhook, group: "Connect" },
+  { path: "/pairing", label: "Pairing", icon: ShieldCheck, group: "Connect" },
+  { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users, group: "Agent" },
+  { path: "/config", labelKey: "config", label: "Settings", icon: Settings, group: "System" },
+  { path: "/env", labelKey: "keys", label: "API keys", icon: KeyRound, group: "System" },
+  { path: "/system", label: "System", icon: Wrench, group: "System" },
   {
     path: "/docs",
     labelKey: "documentation",
     label: "Documentation",
     icon: BookOpen,
+    group: "System",
   },
 ];
 
@@ -545,7 +565,7 @@ export default function App() {
             id="app-sidebar"
             aria-label={t.app.navigation}
             className={cn(
-              "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-64 min-h-0 flex-col font-sans",
+              "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-60 min-h-0 flex-col font-sans",
               "border-r border-current/20",
               "bg-background-base",
               "transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
@@ -575,10 +595,12 @@ export default function App() {
               >
                 <PluginSlot name="header-left" />
 
-                <Typography className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase">
+                <span
+                  aria-hidden="true"
+                  className="h-2 w-2 rounded-full bg-success shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-success)_12%,transparent)]"
+                />
+                <Typography className="text-[0.95rem] font-medium leading-none tracking-[-0.02em] text-midground">
                   Hermes
-                  <br />
-                  Agent
                 </Typography>
               </div>
 
@@ -615,18 +637,53 @@ export default function App() {
               className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-current/10 py-2"
               aria-label={t.app.navigation}
             >
-              <ul className="flex flex-col">
-                {sidebarNav.coreItems.map((item) => (
-                  <SidebarNavLink
-                    closeMobile={closeMobile}
-                    collapsed={isDesktopCollapsed}
-                    item={item}
-                    key={item.path}
-                    t={t}
-                    tooltipWarmRef={tooltipWarmRef}
-                  />
-                ))}
-              </ul>
+              {NAV_GROUPS.map((group, groupIndex) => {
+                const items = sidebarNav.coreItems.filter(
+                  (item) => item.group === group,
+                );
+                if (items.length === 0) return null;
+                const headingId = `hermes-sidebar-${group.toLowerCase()}-heading`;
+                const groupLabel: Record<NavGroup, string> = {
+                  Workspace: t.app.webUi,
+                  Observe: t.app.nav.analytics,
+                  Agent: t.status.agent,
+                  Connect: t.common.messaging,
+                  System: t.app.system,
+                };
+                return (
+                  <div
+                    aria-labelledby={headingId}
+                    className={cn(
+                      "flex flex-col pb-1.5",
+                      groupIndex > 0 && "border-t border-current/8 pt-1.5",
+                    )}
+                    key={group}
+                    role="group"
+                  >
+                    <span
+                      className={cn(
+                        "px-4 pb-1 pt-1.5 text-[0.68rem] font-medium tracking-[0.08em] text-text-tertiary",
+                        isDesktopCollapsed && "lg:hidden",
+                      )}
+                      id={headingId}
+                    >
+                      {groupLabel[group]}
+                    </span>
+                    <ul className="flex flex-col px-2">
+                      {items.map((item) => (
+                        <SidebarNavLink
+                          closeMobile={closeMobile}
+                          collapsed={isDesktopCollapsed}
+                          item={item}
+                          key={item.path}
+                          t={t}
+                          tooltipWarmRef={tooltipWarmRef}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
 
               {sidebarNav.pluginItems.length > 0 && (
                 <div
@@ -636,8 +693,7 @@ export default function App() {
                 >
                   <span
                     className={cn(
-                      "px-5 pt-2.5 pb-1",
-                      "font-sans text-display text-xs tracking-[0.12em] text-text-tertiary",
+                      "px-4 pb-1 pt-1.5 text-[0.68rem] font-medium tracking-[0.08em] text-text-tertiary",
                       isDesktopCollapsed && "lg:hidden",
                     )}
                     id="hermes-sidebar-plugin-nav-heading"
@@ -645,7 +701,7 @@ export default function App() {
                     {t.app.pluginNavSection}
                   </span>
 
-                  <ul className="flex flex-col">
+                  <ul className="flex flex-col px-2">
                     {sidebarNav.pluginItems.map((item) => (
                       <SidebarNavLink
                         closeMobile={closeMobile}
@@ -842,14 +898,14 @@ function SidebarNavLink({
         onBlur={collapsed ? hideTooltip : undefined}
         className={({ isActive }) =>
           cn(
-            "group/nav relative flex items-center gap-3",
-            "px-5 py-2.5",
-            "font-sans text-display uppercase text-sm tracking-[0.12em]",
+            "group/nav relative flex items-center gap-3 rounded-md",
+            "px-3 py-2",
+            "font-sans text-sm font-medium tracking-[-0.01em]",
             "whitespace-nowrap transition-colors cursor-pointer",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground/60",
             isActive
-              ? "text-midground"
-              : "text-text-secondary hover:text-midground",
+              ? "bg-midground/8 font-semibold text-midground"
+              : "text-text-secondary hover:bg-midground/5 hover:text-midground",
           )
         }
         style={{
@@ -858,7 +914,13 @@ function SidebarNavLink({
       >
         {({ isActive }) => (
           <>
-            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {isActive && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-current"
+              />
+            )}
+            <Icon className="h-4 w-4 shrink-0" />
 
             <span
               className={cn(
@@ -868,18 +930,6 @@ function SidebarNavLink({
             >
               {navLabel}
             </span>
-
-            <span
-              aria-hidden
-              className="absolute inset-y-0.5 left-1.5 right-1.5 bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover/nav:opacity-5"
-            />
-
-            {isActive && (
-              <span
-                aria-hidden
-                className="absolute left-0 top-0 bottom-0 w-px bg-midground"
-              />
-            )}
           </>
         )}
       </NavLink>
@@ -1303,6 +1353,7 @@ interface GatewayDotProps {
 }
 
 interface NavItem {
+  group?: NavGroup;
   icon: ComponentType<{ className?: string }>;
   label: string;
   labelKey?: string;
