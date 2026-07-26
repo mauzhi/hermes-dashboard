@@ -653,6 +653,141 @@ class TestSystemStatsEndpoint:
         # psutil flag tells the UI whether the richer metrics are populated.
         assert "psutil" in s
 
+    def test_storage_shape(self, monkeypatch):
+        from types import SimpleNamespace
+        import hermes_cli.web_server as ws
+
+        async def fake_scope(scope_id, label, root):
+            return {
+                "id": scope_id,
+                "label": label,
+                "items": [{"name": "example", "bytes": 25}],
+                "visible_bytes": 25,
+                "error": None,
+            }
+
+        monkeypatch.setattr(ws, "_safe_storage_du_scope", fake_scope)
+        monkeypatch.setattr(
+            ws.shutil,
+            "disk_usage",
+            lambda _path: SimpleNamespace(total=100, used=40, free=60),
+        )
+        ws.app.state.storage_usage_cache = None
+
+        r = self.client.get("/api/system/storage?refresh=true")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["filesystem"] == {
+            "mount": "/",
+            "total": 100,
+            "used": 40,
+            "free": 60,
+            "percent": 40.0,
+        }
+        assert [scope["id"] for scope in body["scopes"]] == [
+            "server",
+            "home",
+            "hermes",
+        ]
+
+    def test_storage_uses_the_filesystem_mount_containing_hermes_home(
+        self, monkeypatch, tmp_path
+    ):
+        from types import SimpleNamespace
+        import hermes_cli.web_server as ws
+
+        mount = tmp_path / "mounted-volume"
+        home = mount / "profiles" / "default"
+        home.mkdir(parents=True)
+        scanned_roots = []
+
+        async def fake_scope(scope_id, label, root):
+            scanned_roots.append((scope_id, root))
+            return {
+                "id": scope_id,
+                "label": label,
+                "items": [],
+                "visible_bytes": 0,
+                "error": None,
+            }
+
+        monkeypatch.setattr(ws, "get_hermes_home", lambda: home)
+        monkeypatch.setattr(ws, "_storage_mount_root", lambda _path: mount)
+        monkeypatch.setattr(ws, "_safe_storage_du_scope", fake_scope)
+        monkeypatch.setattr(
+            ws.shutil,
+            "disk_usage",
+            lambda path: (
+                SimpleNamespace(total=100, used=25, free=75)
+                if path == home
+                else pytest.fail(f"disk_usage called for unexpected path {path}")
+            ),
+        )
+        ws.app.state.storage_usage_cache = None
+
+        body = self.client.get("/api/system/storage?refresh=true").json()
+
+        assert body["filesystem"]["mount"] == str(mount)
+        assert scanned_roots[0] == ("server", mount)
+
+    @pytest.mark.asyncio
+    async def test_storage_scope_reports_subprocess_start_failure(self, monkeypatch, tmp_path):
+        import hermes_cli.web_server as ws
+
+        monkeypatch.setattr(ws.shutil, "which", lambda _name: "/usr/bin/du")
+
+        async def fail_spawn(*_args, **_kwargs):
+            raise OSError("process table full")
+
+        monkeypatch.setattr(ws.asyncio, "create_subprocess_exec", fail_spawn)
+
+        result = await ws._storage_du_scope("home", "Home", tmp_path)
+
+        assert result["items"] == []
+        assert result["visible_bytes"] == 0
+        assert result["error"] == "Directory breakdown could not be started."
+
+    @pytest.mark.asyncio
+    async def test_concurrent_forced_storage_refreshes_share_one_scan(self, monkeypatch):
+        import asyncio
+        from types import SimpleNamespace
+        import hermes_cli.web_server as ws
+
+        calls = 0
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_scope(scope_id, label, root):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                entered.set()
+                await release.wait()
+            return {
+                "id": scope_id,
+                "label": label,
+                "items": [],
+                "visible_bytes": 0,
+                "error": None,
+            }
+
+        monkeypatch.setattr(ws, "_safe_storage_du_scope", fake_scope)
+        monkeypatch.setattr(
+            ws.shutil,
+            "disk_usage",
+            lambda _path: SimpleNamespace(total=100, used=25, free=75),
+        )
+        ws.app.state.storage_usage_cache = None
+        ws.app.state.storage_usage_lock = asyncio.Lock()
+
+        first = asyncio.create_task(ws.get_system_storage(refresh=True))
+        await entered.wait()
+        second = asyncio.create_task(ws.get_system_storage(refresh=True))
+        release.set()
+        await asyncio.gather(first, second)
+
+        assert calls == 3
+
 
 class TestCuratorEndpoints:
     @pytest.fixture(autouse=True)
@@ -1020,6 +1155,7 @@ class TestAdminEndpointsAuthGate:
             "/api/curator",
             "/api/portal",
             "/api/system/stats",
+            "/api/system/storage",
             "/api/hermes/update/check",
         ],
     )

@@ -1405,3 +1405,8 @@ interface SystemActionItem {
   runningLabel: string;
   spin: boolean;
 }
+  HardDrive,
+import StoragePage from "@/pages/StoragePage";
+  "/storage": StoragePage,
+  { path: "/storage", label: "Storage", icon: HardDrive, group: "System" },
+  HardDrive,

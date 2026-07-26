@@ -1195,6 +1195,10 @@ export const api = {
       body: JSON.stringify({ event, command }),
     }),
   getSystemStats: () => fetchJSON<SystemStats>("/api/system/stats"),
+  getSystemStorage: (refresh = false) =>
+    fetchJSON<SystemStorageResponse>(
+      `/api/system/storage${refresh ? "?refresh=true" : ""}`,
+    ),
 
   // ── Admin: Curator ──────────────────────────────────────────────────
   getCurator: () => fetchJSON<CuratorStatus>("/api/curator"),
@@ -1732,6 +1736,34 @@ export interface SystemStats {
   memory?: { total: number; available: number; used: number; percent: number };
   disk?: { total: number; used: number; free: number; percent: number };
   process?: { pid: number; rss: number; create_time: number; num_threads: number };
+}
+
+export interface StorageBreakdownItem {
+  name: string;
+  bytes: number;
+}
+
+export interface StorageBreakdownScope {
+  id: "server" | "home" | "hermes" | string;
+  label: string;
+  items: StorageBreakdownItem[];
+  visible_bytes: number;
+  error: string | null;
+}
+
+export interface SystemStorageResponse {
+  generated_at: string;
+  cached: boolean;
+  cache_ttl_seconds: number;
+  refresh_error?: string;
+  filesystem: {
+    mount: string;
+    total: number;
+    used: number;
+    free: number;
+    percent: number;
+  };
+  scopes: StorageBreakdownScope[];
 }
 
 export interface CuratorStatus {

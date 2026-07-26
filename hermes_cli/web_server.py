@@ -3513,6 +3513,247 @@ async def get_system_stats():
     return info
 
 
+_STORAGE_SCAN_TTL_SECONDS = 300.0
+_STORAGE_REFRESH_MIN_SECONDS = 30.0
+_STORAGE_SCAN_TIMEOUT_SECONDS = 45.0
+_STORAGE_SCAN_LIMIT = 16
+_STORAGE_SCAN_MAX_ENTRIES = 10_000
+
+
+def _storage_mount_root(path: Path) -> Path:
+    """Return the mounted filesystem that contains *path*."""
+    current = path.resolve()
+    if not current.is_dir():
+        current = current.parent
+    while current.parent != current and not os.path.ismount(current):
+        current = current.parent
+    return current
+
+
+async def _storage_du_scope(scope_id: str, label: str, root: Path) -> Dict[str, Any]:
+    """Return one-level visible disk usage for a fixed server directory.
+
+    The roots are selected by the server, never supplied by the request.  GNU
+    ``du`` stays on the current filesystem so pseudo filesystems and mounted
+    network volumes cannot turn a dashboard refresh into an unbounded crawl.
+    """
+    du_path = shutil.which("du")
+    if du_path is None or os.name == "nt":
+        return {
+            "id": scope_id,
+            "label": label,
+            "items": [],
+            "visible_bytes": 0,
+            "error": "Directory breakdown is unavailable on this platform.",
+        }
+
+    if sys.platform == "darwin":
+        args = [du_path, "-x", "-k", "-d", "1", str(root)]
+        multiplier = 1024
+    elif sys.platform.startswith("linux"):
+        args = [du_path, "-x", "-B1", "--max-depth=1", str(root)]
+        multiplier = 1
+    else:
+        return {
+            "id": scope_id,
+            "label": label,
+            "items": [],
+            "visible_bytes": 0,
+            "error": "Directory breakdown is unsupported on this platform.",
+        }
+
+    env = os.environ.copy()
+    env["LC_ALL"] = "C"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env=env,
+        )
+    except OSError:
+        return {
+            "id": scope_id,
+            "label": label,
+            "items": [],
+            "visible_bytes": 0,
+            "error": "Directory breakdown could not be started.",
+        }
+    root_resolved = os.path.normpath(str(root))
+    items: List[Dict[str, Any]] = []
+    visible_bytes = 0
+    entries_seen = 0
+    entry_limit_hit = False
+    timed_out = False
+
+    async def _consume_output() -> None:
+        nonlocal visible_bytes, entries_seen, entry_limit_hit
+        assert proc.stdout is not None
+        while True:
+            raw_line = await proc.stdout.readline()
+            if not raw_line:
+                break
+            line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+            size_text, separator, path_text = line.partition("\t")
+            if not separator:
+                # BSD du separates columns with arbitrary whitespace.
+                parts = line.split(None, 1)
+                if len(parts) != 2:
+                    continue
+                size_text, path_text = parts
+            try:
+                size = max(0, int(size_text) * multiplier)
+            except ValueError:
+                continue
+            normalized = os.path.normpath(path_text)
+            if normalized == root_resolved:
+                continue
+
+            entries_seen += 1
+            if entries_seen > _STORAGE_SCAN_MAX_ENTRIES:
+                entry_limit_hit = True
+                proc.kill()
+                break
+
+            visible_bytes += size
+            name = Path(normalized).name or normalized
+            items.append({"name": name, "bytes": size})
+            items.sort(key=lambda item: item["bytes"], reverse=True)
+            if len(items) > _STORAGE_SCAN_LIMIT:
+                items.pop()
+        await proc.wait()
+
+    try:
+        await asyncio.wait_for(
+            _consume_output(), timeout=_STORAGE_SCAN_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        timed_out = True
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        raise
+
+    error = None
+    if timed_out:
+        error = "The scan timed out; results may be incomplete."
+    elif entry_limit_hit:
+        error = "The scan reached its entry limit; results may be incomplete."
+    elif proc.returncode:
+        error = "Some directories could not be read; results may be incomplete."
+    return {
+        "id": scope_id,
+        "label": label,
+        "items": items,
+        "visible_bytes": visible_bytes,
+        "error": error,
+    }
+
+
+async def _safe_storage_du_scope(
+    scope_id: str, label: str, root: Path
+) -> Dict[str, Any]:
+    try:
+        return await _storage_du_scope(scope_id, label, root)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logging.getLogger(__name__).exception("Storage scan failed for %s", scope_id)
+        return {
+            "id": scope_id,
+            "label": label,
+            "items": [],
+            "visible_bytes": 0,
+            "error": "This directory breakdown could not be scanned.",
+        }
+
+
+@app.get("/api/system/storage")
+async def get_system_storage(refresh: bool = False):
+    """Filesystem capacity and cached, read-only directory breakdowns.
+
+    Capacity is authoritative for the filesystem containing ``HERMES_HOME``.
+    Directory totals are best-effort visible usage: unreadable files are omitted
+    and the server never accepts a caller-controlled path.
+    """
+    request_started = time.monotonic()
+    now = request_started
+    cached = getattr(app.state, "storage_usage_cache", None)
+    if (
+        cached is not None
+        and (
+            (not refresh and now - cached[0] < _STORAGE_SCAN_TTL_SECONDS)
+            or (refresh and now - cached[0] < _STORAGE_REFRESH_MIN_SECONDS)
+        )
+    ):
+        return {**cached[1], "cached": True}
+
+    lock = getattr(app.state, "storage_usage_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        app.state.storage_usage_lock = lock
+
+    async with lock:
+        now = time.monotonic()
+        cached = getattr(app.state, "storage_usage_cache", None)
+        if (
+            cached is not None
+            and (
+                cached[0] >= request_started
+                or (not refresh and now - cached[0] < _STORAGE_SCAN_TTL_SECONDS)
+                or (refresh and now - cached[0] < _STORAGE_REFRESH_MIN_SECONDS)
+            )
+        ):
+            return {**cached[1], "cached": True}
+
+        try:
+            hermes_home = Path(get_hermes_home()).resolve()
+            volume_root = _storage_mount_root(hermes_home)
+            usage = shutil.disk_usage(hermes_home)
+            used = max(0, usage.used)
+            scopes = await asyncio.gather(
+                _safe_storage_du_scope(
+                    "server", "Filesystem directories", volume_root
+                ),
+                _safe_storage_du_scope(
+                    "home", "Home directories", Path.home().resolve()
+                ),
+                _safe_storage_du_scope("hermes", "Hermes data", hermes_home),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.getLogger(__name__).exception("Storage usage refresh failed")
+            if cached is not None:
+                return {
+                    **cached[1],
+                    "cached": True,
+                    "refresh_error": "The latest storage refresh failed.",
+                }
+            raise HTTPException(
+                status_code=503, detail="Storage usage is temporarily unavailable."
+            )
+        result = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "cached": False,
+            "cache_ttl_seconds": int(_STORAGE_SCAN_TTL_SECONDS),
+            "filesystem": {
+                "mount": str(volume_root),
+                "total": usage.total,
+                "used": used,
+                "free": usage.free,
+                "percent": round((used / usage.total * 100.0), 1) if usage.total else 0.0,
+            },
+            "scopes": scopes,
+        }
+        app.state.storage_usage_cache = (time.monotonic(), result)
+        return result
+
+
 # ---------------------------------------------------------------------------
 # Curator endpoints — background skill-maintenance status + controls.
 #
