@@ -18,6 +18,15 @@ const HEALTHY_PLATFORM_STATES = new Set([
   "running",
 ]);
 
+const UNHEALTHY_PLATFORM_STATES = new Set([
+  "disconnected",
+  "error",
+  "failed",
+  "fatal",
+  "retrying",
+  "startup_failed",
+]);
+
 const FAILED_JOB_STATES = new Set(["error", "failed", "failure"]);
 
 export function isHealthyPlatformState(state: string | null | undefined): boolean {
@@ -79,7 +88,7 @@ export function collectOperationalIssues(
 
   for (const [name, platform] of Object.entries(status?.gateway_platforms ?? {})) {
     const state = platform.state.trim().toLowerCase();
-    if (platform.error_message || state === "error" || state === "failed") {
+    if (platform.error_message || UNHEALTHY_PLATFORM_STATES.has(state)) {
       issues.push({
         id: `platform:${name}`,
         severity: "warning",

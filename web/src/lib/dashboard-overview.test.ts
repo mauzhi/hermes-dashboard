@@ -105,6 +105,30 @@ describe("dashboard operational overview", () => {
     expect(operationalSummary(issues)).toBe("Action required");
   });
 
+  it.each(["disconnected", "retrying", "fatal", "startup_failed"])(
+    "treats a %s channel as needing attention without an error message",
+    (stateValue) => {
+      const issues = collectOperationalIssues(
+        status({
+          gateway_platforms: {
+            telegram: { state: stateValue, updated_at: "" },
+          },
+        }),
+        stats(),
+        [],
+      );
+
+      expect(issues).toEqual([
+        expect.objectContaining({
+          id: "platform:telegram",
+          severity: "warning",
+          detail: stateValue,
+        }),
+      ]);
+      expect(operationalSummary(issues)).toBe("Review recommended");
+    },
+  );
+
   it("reports a clean system when no signal needs action", () => {
     const issues = collectOperationalIssues(status(), stats({ cpu_percent: 12 }), []);
     expect(issues).toEqual([]);
